@@ -1,6 +1,8 @@
 # Variable-font paragraph style regressions (#1210)
 
-The real-font tests are explicit opt-in tests: missing fonts fail rather than silently pass.
+Default tests generate a small variable-font name/axis table around the existing bundled OFL outlines. They exercise cold catalog discovery in both the Family menu and Style popup, selection, and retry on reopening a popup after a font file was unavailable. No download or system-font installation is required. Run them with `cargo test -p designcraft-ui-egui --lib synthetic_variable`.
+
+The real-font tests remain explicit opt-in tests: missing fonts fail rather than silently pass.
 They use SIL OFL 1.1 Bricolage Grotesque from google/fonts commit
 `47d54ca1ebb14fd864695f1d39dc734f39017c33`, path
 `ofl/bricolagegrotesque/BricolageGrotesque[opsz,wdth,wght].ttf`.
@@ -24,7 +26,7 @@ cargo test -p designcraft-ui-egui cold_style_combo_contains_named_instances -- -
 
 Do not install the fixture globally or preload it through add_font for this cold test.
 On other platforms use the platform's test font directory before the process starts.
-The test asserts that the font is initially catalogued as only `96pt ExtraBold`.
+The test asserts that SemiBold is absent before loading, without depending on the default style name.
 It then opens the actual Style combo, selects SemiBold and verifies c.fontStyle.
 The menu-cache test creates an isolated database whose font directory holds the fixture.
 The warm widget test clicks Regular -> SemiBold -> Bold -> Regular, compares Confirm with

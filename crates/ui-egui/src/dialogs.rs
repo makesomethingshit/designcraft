@@ -5355,6 +5355,41 @@ fn char_swatch(lang: &str, ui: &mut egui::Ui, d: &mut Dialog, cf: &CharFields, d
     char_choice(lang, ui, d, cf, key, &opts);
 }
 
+/// Load styles once per popup opening, including when the selected family is missing.
+fn font_style_combo(
+    ui: &mut egui::Ui,
+    fonts: &designcraft_fonts::ScopedFonts<'_>,
+    scope: u32,
+    family: &str,
+    style: &str,
+    d: &mut Dialog,
+    cf: &CharFields,
+) {
+    let key = ui.make_persistent_id(("pssty_styles", scope));
+    let frame = ui.ctx().cumulative_frame_nr();
+    let shown = egui::ComboBox::from_id_salt("pssty").selected_text(style).width(200.0).show_ui(ui, |ui| {
+        let cached = ui.data(|data| data.get_temp::<(String, u64, Vec<String>)>(key));
+        let styles = if let Some((_, _, styles)) = cached.filter(|(f, last, _)| f == family && last.saturating_add(1) >= frame) {
+            styles
+        } else {
+            let _ = fonts.face(family, style);
+            fonts.styles(family)
+        };
+        ui.data_mut(|data| data.insert_temp(key, (family.to_string(), frame, styles.clone())));
+        if cf.sparse && ui.selectable_label(style.is_empty(), " ").clicked() {
+            cf.set(d, "fontStyle", Value::Null);
+        }
+        for s in styles {
+            if ui.selectable_label(s == style, &s).clicked() {
+                cf.set(d, "fontStyle", json!(s));
+            }
+        }
+    });
+    if shown.inner.is_none() {
+        ui.data_mut(|data| data.remove::<(String, u64, Vec<String>)>(key));
+    }
+}
+
 /// Basic Character Formats: font, size, leading, kerning, tracking, case, position and the
 /// underline, strikethrough, ligatures and no-break switches.
 fn basic_character_formats(app: &mut DesignApp, ui: &mut egui::Ui, d: &mut Dialog, cf: &CharFields) {
@@ -5392,18 +5427,7 @@ fn basic_character_formats(app: &mut DesignApp, ui: &mut egui::Ui, d: &mut Dialo
                 cf.set(d, "fontStyle", if s.trim().is_empty() { Value::Null } else { json!(s) });
             }
         } else {
-            egui::ComboBox::from_id_salt("pssty").selected_text(&sty).width(200.0).show_ui(ui, |ui| {
-                if cf.sparse && ui.selectable_label(sty.is_empty(), " ").clicked() {
-                    cf.set(d, "fontStyle", Value::Null);
-                }
-                // A cold system font only lists its default style until loaded.
-                let _ = fonts.face(&fam, &sty);
-                for s in fonts.styles(&fam) {
-                    if ui.selectable_label(s == sty, &s).clicked() {
-                        cf.set(d, "fontStyle", json!(s));
-                    }
-                }
-            });
+            font_style_combo(ui, &fonts, crate::panels::font_scope(app), &fam, &sty, d, cf);
         }
         ui.end_row();
         crate::rtl::label(ui, crate::i18n::tr(lang, "Size:"));
@@ -9919,7 +9943,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod variable_style_investigation {
+mod variable_style_regression {
     use super::*;
     #[test]
     #[ignore = "requires the pinned Bricolage fixture; see docs/testing-variable-fonts.md"]
@@ -10005,7 +10029,10 @@ mod variable_cold_style_regression {
     fn cold_style_combo_contains_named_instances() {
         use egui_kittest::{Harness, kittest::Queryable};
         let fonts = designcraft_fonts::FontDb::global();
-        assert_eq!(fonts.styles("Bricolage Grotesque"), ["96pt ExtraBold"], "run in a fresh process with the test font catalogued but not loaded");
+        assert!(
+            !fonts.styles("Bricolage Grotesque").contains(&"SemiBold".into()),
+            "run in a fresh process with the test font catalogued but not loaded"
+        );
         let mut app = DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({})).unwrap();
         let base = json!({"fontFamily":"Bricolage Grotesque", "fontStyle":"Regular"});
@@ -10022,5 +10049,90 @@ mod variable_cold_style_regression {
         h.get_by_label("SemiBold").click();
         h.run_steps(3);
         assert_eq!(h.state().1.fields["c.fontStyle"], "SemiBold");
+    }
+}
+
+#[cfg(test)]
+mod synthetic_variable_style_regression {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    #[test]
+    fn cold_style_popup_discovers_instances_and_selects_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let family = "Synthetic Cold Style";
+        std::fs::write(dir.path().join("variable.ttf"), designcraft_fonts::testing::variable_font(family).unwrap()).unwrap();
+        let db = designcraft_fonts::FontDb::with_font_dirs(vec![dir.path().to_owned()]);
+        assert_eq!(db.styles(family), ["Regular"]);
+        let mut h = Harness::builder().build_ui_state(
+            |ui, d: &mut Dialog| {
+                let style = d.fields.get("c.fontStyle").and_then(Value::as_str).unwrap_or("Regular").to_string();
+                font_style_combo(ui, &db.scoped(0), 0, family, &style, d, &CharFields { base: &Value::Null, sparse: false });
+            },
+            Dialog::new("paragraphStyleOptions", json!({})),
+        );
+        h.run_steps(3);
+        assert_eq!(db.styles(family), ["Regular"], "closed popup must not preload the font");
+        h.get_by_value("Regular").click();
+        h.run_steps(3);
+        assert_eq!(db.styles(family), ["Regular", "SemiBold"]);
+        h.get_by_label("SemiBold").click();
+        h.run_steps(3);
+        assert_eq!(h.state().fields["c.fontStyle"], "SemiBold");
+    }
+
+    #[test]
+    fn missing_family_styles_are_cached_until_the_popup_reopens() {
+        for retry in ["reopen", "hidden", "scope"] {
+            let dir = tempfile::tempdir().unwrap();
+            let family = "Synthetic Missing Style";
+            let path = dir.path().join("variable.ttf");
+            std::fs::write(&path, designcraft_fonts::testing::variable_font(family).unwrap()).unwrap();
+            let db = designcraft_fonts::FontDb::with_font_dirs(vec![dir.path().to_owned()]);
+            assert_eq!(db.styles(family), ["Regular"]);
+            std::fs::remove_file(&path).unwrap();
+            let mut h = Harness::builder().build_ui_state(
+                |ui, state: &mut (Dialog, bool, u32)| {
+                    if state.1 {
+                        font_style_combo(
+                            ui,
+                            &db.scoped(state.2),
+                            state.2,
+                            family,
+                            "Regular",
+                            &mut state.0,
+                            &CharFields { base: &Value::Null, sparse: false },
+                        );
+                    }
+                },
+                (Dialog::new("paragraphStyleOptions", json!({})), true, 0),
+            );
+            h.run_steps(3);
+            h.get_by_value("Regular").click();
+            h.run_steps(3);
+            assert!(h.query_by_label("SemiBold").is_none());
+            std::fs::write(&path, designcraft_fonts::testing::variable_font(family).unwrap()).unwrap();
+            h.run_steps(3);
+            assert_eq!(db.styles(family), ["Regular"], "an open popup must not retry the missing font every frame");
+            match retry {
+                "hidden" => {
+                    h.state_mut().1 = false;
+                    h.run_steps(3);
+                    h.state_mut().1 = true;
+                }
+                "scope" => h.state_mut().2 = 1,
+                _ => {
+                    egui::Popup::close_all(&h.ctx);
+                    h.run_steps(3);
+                    h.get_by_value("Regular").click();
+                }
+            }
+            h.run_steps(3);
+            if h.query_by_label("SemiBold").is_none() {
+                h.get_by_value("Regular").click();
+                h.run_steps(3);
+            }
+            assert!(h.query_by_label("SemiBold").is_some(), "{retry} retries the now-readable font");
+        }
     }
 }

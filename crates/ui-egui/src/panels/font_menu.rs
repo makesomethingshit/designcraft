@@ -63,7 +63,7 @@ fn regular(styles: &[String]) -> String {
     styles.iter().find(|s| *s == "Regular").or(styles.first()).cloned().unwrap_or_else(|| "Regular".into())
 }
 
-fn meta(ui: &Ui, fonts: &designcraft_fonts::ScopedFonts<'static>, scope: u32, family: &str) -> FamilyMeta {
+fn meta(ui: &Ui, fonts: &designcraft_fonts::ScopedFonts<'_>, scope: u32, family: &str) -> FamilyMeta {
     let key = egui::Id::new(("font_meta", family, scope));
     if let Some(m) = ui.data(|d| d.get_temp::<FamilyMeta>(key)) {
         return m;
@@ -696,7 +696,7 @@ mod variable_catalog_regression {
         let path = std::path::PathBuf::from(path);
         let db = Box::leak(Box::new(designcraft_fonts::FontDb::with_font_dirs(vec![path.parent().unwrap().to_owned()])));
         let fonts = db.scoped(0);
-        assert_eq!(fonts.styles("Bricolage Grotesque"), ["96pt ExtraBold"]);
+        assert!(!fonts.styles("Bricolage Grotesque").contains(&"SemiBold".into()), "the fixture must be catalogued but not loaded");
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(egui::RawInput::default(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
@@ -737,5 +737,26 @@ mod variable_catalog_regression {
         let pick = h.state().1.as_ref().expect("a style row was picked");
         assert_eq!(pick.family, "Bricolage Grotesque");
         assert_eq!(pick.style.as_deref(), Some("SemiBold"));
+    }
+}
+
+#[cfg(test)]
+mod synthetic_variable_catalog_regression {
+    #[test]
+    fn cold_family_menu_discovers_and_caches_named_instances() {
+        let dir = tempfile::tempdir().unwrap();
+        let family = "Synthetic Cold Menu";
+        std::fs::write(dir.path().join("variable.ttf"), designcraft_fonts::testing::variable_font(family).unwrap()).unwrap();
+        let db = designcraft_fonts::FontDb::with_font_dirs(vec![dir.path().to_owned()]);
+        let fonts = db.scoped(0);
+        assert_eq!(fonts.styles(family), ["Regular"]);
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let first = super::meta(ui, &fonts, 0, family);
+            assert_eq!(first.styles, ["Regular", "SemiBold"]);
+            let second = super::meta(ui, &fonts, 0, family);
+            assert_eq!(first.styles, second.styles);
+        });
+        output.textures_delta.clear();
     }
 }
