@@ -5396,6 +5396,8 @@ fn basic_character_formats(app: &mut DesignApp, ui: &mut egui::Ui, d: &mut Dialo
                 if cf.sparse && ui.selectable_label(sty.is_empty(), " ").clicked() {
                     cf.set(d, "fontStyle", Value::Null);
                 }
+                // A cold system font only lists its default style until loaded.
+                let _ = fonts.face(&fam, &sty);
                 for s in fonts.styles(&fam) {
                     if ui.selectable_label(s == sty, &s).clicked() {
                         cf.set(d, "fontStyle", json!(s));
@@ -9913,5 +9915,112 @@ mod tests {
         ctl(&mut app, "ui.dialog.set", json!({"field": "c.digits", "value": "farsi"}));
         assert_eq!(ctl(&mut app, "ui.dialog.confirm", json!({}))["ok"], true);
         assert_eq!(char_style(&app, "Emphasis").unwrap().chars.digits, Some(designcraft_doc::Digits::Farsi));
+    }
+}
+
+#[cfg(test)]
+mod variable_style_investigation {
+    use super::*;
+    #[test]
+    #[ignore = "requires the pinned Bricolage fixture; see docs/testing-variable-fonts.md"]
+    fn named_instance_style_widget_and_api_agree() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let path = std::env::var_os("DESIGNCRAFT_TEST_VARIABLE_FONT").expect("set DESIGNCRAFT_TEST_VARIABLE_FONT");
+        let db = designcraft_fonts::FontDb::global();
+        db.add_font(std::fs::read(path).unwrap());
+        let mut app = DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({})).unwrap();
+        app.run("style.paragraph.create", json!({"name":"Base VF", "chars":{"fontFamily":"Bricolage Grotesque", "fontStyle":"Regular"}})).unwrap();
+        app.run("style.paragraph.create", json!({"name":"UI VF", "basedOn":"Base VF"})).unwrap();
+        app.run("style.paragraph.create", json!({"name":"API VF", "basedOn":"Base VF"})).unwrap();
+        let base = json!({"fontFamily":"Bricolage Grotesque", "fontStyle":"Regular"});
+        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+            move |ui, state: &mut (DesignApp, Dialog)| {
+                basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
+            },
+            (app, Dialog::new("paragraphStyleOptions", json!({"name":"UI VF"}))),
+        );
+        h.run_steps(3);
+        {
+            let (app, d) = h.state_mut();
+            let before = app.session.doc().unwrap().doc.clone();
+            let undo = app.session.doc().unwrap().history.undo.len();
+            d.fields.insert("preview".into(), json!(true));
+            d.fields.insert("c.fontStyle".into(), json!("SemiBold"));
+            style_options_preview(app, d);
+            assert_eq!(app.session.doc().unwrap().doc.styles.resolve_para_style("UI VF").1.font_style, "SemiBold");
+            assert_eq!(app.session.doc().unwrap().history.undo.len(), undo);
+            d.fields.insert("preview".into(), json!(false));
+            style_options_preview(app, d);
+            assert_eq!(app.session.doc().unwrap().doc, before);
+            d.fields.insert("preview".into(), json!(true));
+            style_options_preview(app, d);
+            app.ui.dialog = Some(d.clone());
+            cancel(app);
+            assert_eq!(app.session.doc().unwrap().doc, before);
+            d.fields.remove(PREVIEWED);
+            d.fields.insert("preview".into(), json!(true));
+            style_options_preview(app, d);
+            app.ui.dialog = Some(d.clone());
+            confirm(app).unwrap();
+            assert_eq!(app.session.doc().unwrap().history.undo.len(), undo + 1);
+            app.run("edit.undo", json!({})).unwrap();
+            assert_eq!(app.session.doc().unwrap().doc, before);
+            app.run("edit.redo", json!({})).unwrap();
+            assert_eq!(app.session.doc().unwrap().doc.styles.resolve_para_style("UI VF").1.font_style, "SemiBold");
+            app.run("edit.undo", json!({})).unwrap();
+            d.fields.remove(PREVIEWED);
+            d.fields.remove("c.fontStyle");
+            d.fields.insert("preview".into(), json!(false));
+        }
+        h.run_steps(3);
+        let mut current = "Regular";
+        for selected in ["SemiBold", "Bold", "Regular"] {
+            h.get_by_value(current).click();
+            h.run_steps(3);
+            h.get_by_label(selected).click();
+            h.run_steps(3);
+            let (app, d) = h.state_mut();
+            assert_eq!(d.fields["c.fontStyle"], selected);
+            assert!(!d.fields.contains_key("c.fontFamily"), "inherited family remains inherited");
+            confirm_paragraph_style_options(app, d).unwrap();
+            app.run("style.paragraph.edit", json!({"name":"API VF","chars":{"fontStyle":selected}})).unwrap();
+            let styles = &app.session.doc().unwrap().doc.styles;
+            assert_eq!(styles.para("UI VF").unwrap().chars, styles.para("API VF").unwrap().chars);
+            assert_eq!(styles.resolve_para_style("UI VF").1.font_style, selected);
+            assert_eq!(styles.para("UI VF").unwrap().based_on.as_deref(), Some("Base VF"));
+            current = selected;
+            let native = app.run("file.serialize", json!({})).unwrap();
+            app.run("file.openBytes", json!({"name":"vf.designcraft","base64":native["base64"]})).unwrap();
+            assert_eq!(app.session.doc().unwrap().doc.styles.resolve_para_style("UI VF").1.font_style, selected);
+        }
+    }
+}
+
+#[cfg(test)]
+mod variable_cold_style_regression {
+    use super::*;
+    #[test]
+    #[ignore = "requires a fresh process with the pinned Bricolage fixture catalogued; see docs/testing-variable-fonts.md"]
+    fn cold_style_combo_contains_named_instances() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let fonts = designcraft_fonts::FontDb::global();
+        assert_eq!(fonts.styles("Bricolage Grotesque"), ["96pt ExtraBold"], "run in a fresh process with the test font catalogued but not loaded");
+        let mut app = DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({})).unwrap();
+        let base = json!({"fontFamily":"Bricolage Grotesque", "fontStyle":"Regular"});
+        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+            move |ui, state: &mut (DesignApp, Dialog)| {
+                basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
+            },
+            (app, Dialog::new("paragraphStyleOptions", json!({}))),
+        );
+        h.run_steps(3);
+        h.get_by_value("Regular").click();
+        h.run_steps(3);
+        assert!(h.query_by_label("SemiBold").is_some(), "the cold Style combo must offer named instances");
+        h.get_by_label("SemiBold").click();
+        h.run_steps(3);
+        assert_eq!(h.state().1.fields["c.fontStyle"], "SemiBold");
     }
 }
