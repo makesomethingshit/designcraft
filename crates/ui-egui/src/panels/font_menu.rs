@@ -743,6 +743,33 @@ mod variable_catalog_regression {
 #[cfg(test)]
 mod synthetic_variable_catalog_regression {
     #[test]
+    fn family_menu_selects_a_synthetic_named_instance() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let family = "Synthetic Menu Wiring";
+        let db = designcraft_fonts::FontDb::global();
+        db.add_font(designcraft_fonts::testing::variable_font(family).unwrap());
+        let app = crate::DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
+        let menu: Vec<_> = db.scoped(0).family_infos().into_iter().filter(|f| f.family == family).collect();
+        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+            |ui, state: &mut (crate::DesignApp, Option<super::FontPick>)| {
+                let key = egui::Id::new("font_menu_state");
+                let mut st: super::MenuState = ui.data(|d| d.get_temp(key)).unwrap_or_default();
+                st.expanded.insert(family.into());
+                ui.data_mut(|d| d.insert_temp(key, st));
+                if let Some(pick) = super::font_menu_body(&mut state.0, ui, &menu, family, 560.0) {
+                    state.1 = Some(pick);
+                }
+            },
+            (app, None),
+        );
+        h.run_steps(3);
+        h.get_by_label("SemiBold").click();
+        h.run_steps(3);
+        let pick = h.state().1.as_ref().expect("the real Family menu selected a style");
+        assert_eq!(pick.family, family);
+        assert_eq!(pick.style.as_deref(), Some("SemiBold"));
+    }
+    #[test]
     fn cold_family_menu_discovers_and_caches_named_instances() {
         let dir = tempfile::tempdir().unwrap();
         let family = "Synthetic Cold Menu";

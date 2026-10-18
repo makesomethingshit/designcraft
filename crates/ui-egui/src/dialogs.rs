@@ -10058,6 +10058,29 @@ mod synthetic_variable_style_regression {
     use egui_kittest::{Harness, kittest::Queryable};
 
     #[test]
+    fn paragraph_style_formats_select_a_synthetic_named_instance() {
+        let family = "Synthetic Paragraph Wiring";
+        designcraft_fonts::FontDb::global().add_font(designcraft_fonts::testing::variable_font(family).unwrap());
+        let mut app = DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({})).unwrap();
+        app.run("style.paragraph.create", json!({"name":"Synthetic UI", "chars":{"fontFamily":family,"fontStyle":"Regular"}})).unwrap();
+        let base = json!({"fontFamily":family,"fontStyle":"Regular"});
+        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+            |ui, state: &mut (DesignApp, Dialog)| {
+                basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
+            },
+            (app, Dialog::new("paragraphStyleOptions", json!({"name":"Synthetic UI"}))),
+        );
+        h.run_steps(3);
+        h.get_by_value("Regular").click();
+        h.run_steps(3);
+        h.get_by_label("SemiBold").click();
+        h.run_steps(3);
+        let (app, d) = h.state_mut();
+        confirm_paragraph_style_options(app, d).unwrap();
+        assert_eq!(app.session.doc().unwrap().doc.styles.resolve_para_style("Synthetic UI").1.font_style, "SemiBold");
+    }
+    #[test]
     fn cold_style_popup_discovers_instances_and_selects_them() {
         let dir = tempfile::tempdir().unwrap();
         let family = "Synthetic Cold Style";
