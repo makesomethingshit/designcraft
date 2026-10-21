@@ -68,3 +68,6 @@ sync_github_name = false
 
 [people.makesomethingshit]
 sync_github_name = true
+
+[people.4waymedia]
+real_name = "Paul Gemignani"
