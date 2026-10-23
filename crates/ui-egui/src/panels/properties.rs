@@ -212,7 +212,7 @@ pub(crate) fn preset_name(w: f64, h: f64) -> &'static str {
 
 /// Properties with the Page tool (Properties › Edit Page), as InDesign's: a "Page" band with Back,
 /// Page Size for this page alone (which page, preset, orientation, W/H), Margins and Columns and
-/// Quick Actions. Back returns to the Selection tool and the document's properties.
+/// Quick Actions. Back leaves parent editing and returns to the Selection tool and document properties.
 fn page_sections(app: &mut DesignApp, ui: &mut Ui, spread: designcraft_doc::SpreadRef, page: usize) {
     let u = units(app);
     let lang = app.ui.language.clone();
@@ -236,6 +236,9 @@ fn page_sections(app: &mut DesignApp, ui: &mut Ui, spread: designcraft_doc::Spre
     });
     rule(ui);
     if back {
+        if matches!(spread, designcraft_doc::SpreadRef::Parent(_)) {
+            let _ = app.run("layout.parents.edit", json!({"on": false}));
+        }
         let _ = app.run("layout.selectPage", json!({"page": null}));
         app.select_tool("selection");
         return;

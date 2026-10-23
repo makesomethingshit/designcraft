@@ -1377,6 +1377,15 @@ mod tests {
             assert_eq!(d.parents[0].pages[0].width, 500.0);
             assert_eq!(d.spreads, before.spreads);
             let parents = d.parents.clone();
+            if properties {
+                let saved = d.clone();
+                h.get_by_label("Back").click();
+                h.run_steps(3);
+                assert!(!h.state().session.doc().unwrap().editing_parents, "Back returns to document properties");
+                assert_eq!(h.state().session.tool_id(), "selection");
+                assert!(h.query_by_label("Back").is_none(), "the next frame must leave the page properties screen");
+                assert!(std::sync::Arc::ptr_eq(&saved, &h.state().session.doc().unwrap().doc));
+            }
             h.state_mut().run("layout.parents.edit", json!({"on": false})).unwrap();
             h.state_mut().session.set_tool("page");
             h.state_mut().run("layout.selectPage", json!({"page": 1})).unwrap();
@@ -1385,6 +1394,15 @@ mod tests {
             let d = &h.state().session.doc().unwrap().doc;
             assert_eq!(d.spreads[0].pages[0].width, 530.0);
             assert_eq!(d.parents, parents);
+            if properties {
+                let saved = d.clone();
+                h.get_by_label("Back").click();
+                h.run_steps(3);
+                assert_eq!(h.state().session.tool_id(), "selection");
+                assert!(h.query_by_label("Back").is_none());
+                assert_eq!(h.state().session.doc().unwrap().selection.page, None);
+                assert!(std::sync::Arc::ptr_eq(&saved, &h.state().session.doc().unwrap().doc));
+            }
         }
     }
 
