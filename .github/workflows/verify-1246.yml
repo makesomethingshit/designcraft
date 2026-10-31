@@ -1,49 +1,22 @@
 name: Verify 1246
-
 on: push
-
 permissions:
   contents: read
-
 jobs:
-  synthetic:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    env:
-      CARGO_TERM_COLOR: always
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check out craft-fonts
-        uses: actions/checkout@v4
-        with:
-          repository: storytold/craft-fonts
-          ref: abb83316d96aa59c1cf64784289e378fe9fa5695
-          path: craft-fonts
-
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxcursor-dev \
-            libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev mesa-vulkan-drivers
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-
-      - name: Default synthetic variable-font regressions
-        env:
-          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
-        run: |
-          cargo test -p designcraft-ui-egui --lib synthetic_variable
-          cargo test -p designcraft-fonts --lib variable_font_named_instances_are_styles
-
-      - name: UI and fonts library suites
-        env:
-          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
-        run: |
-          cargo test -p designcraft-ui-egui --lib
-          cargo test -p designcraft-fonts --lib
-
+  verify:
+    uses: storytold/craft-common-actions/.github/workflows/gate.yml@main
+    with:
+      craft-fonts-ref: b076417b5880bd4154bd22f00695b1d28c6bea83
+      timeout-minutes: 90
+      packages: >-
+        pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxcursor-dev
+        libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev mesa-vulkan-drivers
+      command: |
+        git fetch --no-tags origin 43c5c5193e1492bdc0067eb8db8bf09416b21245
+        git checkout --detach 43c5c5193e1492bdc0067eb8db8bf09416b21245
+        test "$(git rev-parse HEAD)" = 43c5c5193e1492bdc0067eb8db8bf09416b21245
+        cargo fmt --all -- --check
+        cargo clippy --workspace --all-targets -- -D warnings
+        cargo test -p designcraft-ui-egui --lib
+        cargo test -p designcraft-fonts --lib
+        cargo xtask ci
