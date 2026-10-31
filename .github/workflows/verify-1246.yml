@@ -12,9 +12,9 @@ jobs:
         pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxcursor-dev
         libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev mesa-vulkan-drivers
       command: |
-        git fetch --no-tags origin 43c5c5193e1492bdc0067eb8db8bf09416b21245
-        git checkout --detach 43c5c5193e1492bdc0067eb8db8bf09416b21245
-        test "$(git rev-parse HEAD)" = 43c5c5193e1492bdc0067eb8db8bf09416b21245
+        git fetch --no-tags origin c7327d1b0704449ac22ab788e2fda6cfb54cae98
+        git checkout --detach c7327d1b0704449ac22ab788e2fda6cfb54cae98
+        test "$(git rev-parse HEAD)" = c7327d1b0704449ac22ab788e2fda6cfb54cae98
         cargo fmt --all -- --check
         cargo clippy --workspace --all-targets -- -D warnings
         cargo test -p designcraft-ui-egui --lib
