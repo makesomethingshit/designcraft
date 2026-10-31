@@ -8,6 +8,10 @@
 </p>
 
 
+<p align="center">
+  <img src="assets/app-icon/hicolor/256x256/apps/ai.storyteller.designcraft.png" width="128" height="128" alt="DesignCraft icon: an engraved cat in a polka-dot scarf on a green tile">
+</p>
+
 <h1 align="center">DesignCraft</h1>
 
 <p align="center">
@@ -119,9 +123,7 @@ Japanese text (UI and documents) uses fonts from
 [storytold/craft-fonts](https://github.com/storytold/craft-fonts), an optional build input (font
 files are never committed here; see the public
 [craft-fonts integration guide](https://github.com/storytold/craft-fonts/blob/main/docs/integration.md)
-for build instructions and craftrules
-[`standards/fonts.md`](https://github.com/storytold/craftrules/blob/main/standards/fonts.md)
-for the shared standard):
+for build instructions):
 
 ```sh
 git clone https://github.com/storytold/craft-fonts ../craft-fonts
