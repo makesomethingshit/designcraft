@@ -7120,16 +7120,21 @@ fn char_number(ui: &mut egui::Ui, d: &mut Dialog, cf: &CharFields, key: &str, su
 fn char_choice(lang: &str, ui: &mut egui::Ui, d: &mut Dialog, cf: &CharFields, key: &str, opts: &[(Value, &str)]) {
     let cur = cf.get(d, key);
     let shown = opts.iter().find(|o| o.0 == cur).map_or("", |o| crate::i18n::tr(lang, o.1));
-    craft_ui::ComboBox::from_id_salt(("cs", key)).selected_text(crate::rtl::widget(ui, shown)).width(140.0).show_ui(ui, |ui| {
-        if cf.sparse && ui.selectable_label(cur.is_null(), " ").clicked() {
-            cf.set(d, key, Value::Null);
-        }
-        for (v, label) in opts {
-            if ui.selectable_label(*v == cur, crate::rtl::widget(ui, crate::i18n::tr(lang, label))).clicked() {
-                cf.set(d, key, v.clone());
+    craft_ui::ComboBox::from_id_salt(("cs", key))
+        .selected_text(crate::rtl::widget(ui, shown))
+        .width(140.0)
+        .show_ui(ui, |ui| {
+            if cf.sparse && ui.selectable_label(cur.is_null(), " ").clicked() {
+                cf.set(d, key, Value::Null);
             }
-        }
-    });
+            for (v, label) in opts {
+                if ui.selectable_label(*v == cur, crate::rtl::widget(ui, crate::i18n::tr(lang, label))).clicked() {
+                    cf.set(d, key, v.clone());
+                }
+            }
+        })
+        .response
+        .accessible_name(setting_label(lang, key));
 }
 
 /// An on/off attribute; for a character style a third, mixed state leaves it unset (clicks go
@@ -7165,7 +7170,7 @@ fn font_style_combo(
     style: &str,
     d: &mut Dialog,
     cf: &CharFields,
-) {
+) -> egui::Response {
     let key = ui.make_persistent_id(("pssty_styles", scope));
     let frame = ui.ctx().cumulative_frame_nr();
     let shown = craft_ui::ComboBox::from_id_salt("pssty").selected_text(style).width(200.0).show_ui(ui, |ui| {
@@ -7189,6 +7194,7 @@ fn font_style_combo(
     if shown.inner.is_none() {
         ui.data_mut(|data| data.remove::<(String, u64, Vec<String>)>(key));
     }
+    shown.response
 }
 
 /// Basic Character Formats: font, size, leading, kerning, tracking, case, position and the
@@ -7200,7 +7206,7 @@ fn basic_character_formats(app: &mut DesignApp, ui: &mut egui::Ui, d: &mut Dialo
     let menu = crate::panels::font_menu(app);
     // Two columns, as InDesign's: the font, then Size | Leading, Kerning | Tracking, Case | Position.
     egui::Grid::new("psc").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-        crate::rtl::label(ui, crate::i18n::tr(lang, "Font Family:"));
+        let name = crate::rtl::label(ui, crate::i18n::tr(lang, "Font Family:"));
         let fam = cf.get(d, "fontFamily").as_str().unwrap_or("").to_string();
         let shown = if fam.is_empty() { "—".to_string() } else { crate::panels::font_label(app, &menu, &fam) };
         let picked = craft_ui::ComboBox::from_id_salt("psfam")
@@ -7217,26 +7223,25 @@ fn basic_character_formats(app: &mut DesignApp, ui: &mut egui::Ui, d: &mut Dialo
                     crate::panels::font_menu_header(app, ui, &menu, &fam, 200.0)
                 },
                 crate::panels::font_menu_list,
-            )
-            .inner
-            .flatten();
-        if let Some(f) = picked {
+            );
+        picked.response.labelled_by(name.id);
+        if let Some(f) = picked.inner.flatten() {
             cf.set(d, "fontFamily", json!(f.family));
             if let Some(style) = f.style {
                 cf.set(d, "fontStyle", json!(style));
             }
         }
         ui.end_row();
-        crate::rtl::label(ui, crate::i18n::tr(lang, "Font Style:"));
+        let name = crate::rtl::label(ui, crate::i18n::tr(lang, "Font Style:"));
         let sty = cf.get(d, "fontStyle").as_str().unwrap_or("").to_string();
         if cf.sparse && fam.is_empty() {
             // No family to list styles of: type the style ("Italic" in whatever font the text has).
             let mut s = sty.clone();
-            if ui.add(egui::TextEdit::singleline(&mut s).desired_width(200.0)).changed() {
+            if ui.add(egui::TextEdit::singleline(&mut s).desired_width(200.0)).labelled_by(name.id).changed() {
                 cf.set(d, "fontStyle", if s.trim().is_empty() { Value::Null } else { json!(s) });
             }
         } else {
-            font_style_combo(ui, &fonts, crate::panels::font_scope(app), &fam, &sty, d, cf);
+            font_style_combo(ui, &fonts, crate::panels::font_scope(app), &fam, &sty, d, cf).labelled_by(name.id);
         }
         ui.end_row();
     });
@@ -9702,12 +9707,17 @@ mod variable_style_regression {
         app.run("style.paragraph.create", json!({"name":"UI VF", "basedOn":"Base VF"})).unwrap();
         app.run("style.paragraph.create", json!({"name":"API VF", "basedOn":"Base VF"})).unwrap();
         let base = json!({"fontFamily":"Bricolage Grotesque", "fontStyle":"Regular"});
-        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-            move |ui, state: &mut (DesignApp, Dialog)| {
-                basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
-            },
-            (app, Dialog::new("paragraphStyleOptions", json!({"name":"UI VF"}))),
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(|ctx| {
+                crate::theme::install_fonts(ctx, "");
+            })
+            .with_size(egui::vec2(1000.0, 800.0))
+            .build_ui_state(
+                move |ui, state: &mut (DesignApp, Dialog)| {
+                    basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
+                },
+                (app, Dialog::new("paragraphStyleOptions", json!({"name":"UI VF"}))),
+            );
         h.run_steps(3);
         {
             let (app, d) = h.state_mut();
@@ -9780,12 +9790,17 @@ mod variable_cold_style_regression {
         let mut app = DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({})).unwrap();
         let base = json!({"fontFamily":"Bricolage Grotesque", "fontStyle":"Regular"});
-        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-            move |ui, state: &mut (DesignApp, Dialog)| {
-                basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
-            },
-            (app, Dialog::new("paragraphStyleOptions", json!({}))),
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(|ctx| {
+                crate::theme::install_fonts(ctx, "");
+            })
+            .with_size(egui::vec2(1000.0, 800.0))
+            .build_ui_state(
+                move |ui, state: &mut (DesignApp, Dialog)| {
+                    basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
+                },
+                (app, Dialog::new("paragraphStyleOptions", json!({}))),
+            );
         h.run_steps(3);
         h.get_by_value("Regular").click();
         h.run_steps(3);
@@ -9809,12 +9824,17 @@ mod synthetic_variable_style_regression {
         app.run("file.new", json!({})).unwrap();
         app.run("style.paragraph.create", json!({"name":"Synthetic UI", "chars":{"fontFamily":family,"fontStyle":"Regular"}})).unwrap();
         let base = json!({"fontFamily":family,"fontStyle":"Regular"});
-        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-            |ui, state: &mut (DesignApp, Dialog)| {
-                basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
-            },
-            (app, Dialog::new("paragraphStyleOptions", json!({"name":"Synthetic UI"}))),
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(|ctx| {
+                crate::theme::install_fonts(ctx, "");
+            })
+            .with_size(egui::vec2(1000.0, 800.0))
+            .build_ui_state(
+                |ui, state: &mut (DesignApp, Dialog)| {
+                    basic_character_formats(&mut state.0, ui, &mut state.1, &CharFields { base: &base, sparse: false });
+                },
+                (app, Dialog::new("paragraphStyleOptions", json!({"name":"Synthetic UI"}))),
+            );
         h.run_steps(3);
         h.get_by_value("Regular").click();
         h.run_steps(3);
@@ -9831,13 +9851,18 @@ mod synthetic_variable_style_regression {
         std::fs::write(dir.path().join("variable.ttf"), designcraft_fonts::testing::variable_font(family).unwrap()).unwrap();
         let db = designcraft_fonts::FontDb::with_font_dirs(vec![dir.path().to_owned()]);
         assert_eq!(db.styles(family), ["Regular"]);
-        let mut h = Harness::builder().build_ui_state(
-            |ui, d: &mut Dialog| {
-                let style = d.fields.get("c.fontStyle").and_then(Value::as_str).unwrap_or("Regular").to_string();
-                font_style_combo(ui, &db.scoped(0), 0, family, &style, d, &CharFields { base: &Value::Null, sparse: false });
-            },
-            Dialog::new("paragraphStyleOptions", json!({})),
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(|ctx| {
+                crate::theme::install_fonts(ctx, "");
+            })
+            .build_ui_state(
+                |ui, d: &mut Dialog| {
+                    let style = d.fields.get("c.fontStyle").and_then(Value::as_str).unwrap_or("Regular").to_string();
+                    font_style_combo(ui, &db.scoped(0), 0, family, &style, d, &CharFields { base: &Value::Null, sparse: false })
+                        .accessible_name("Font Style".to_owned());
+                },
+                Dialog::new("paragraphStyleOptions", json!({})),
+            );
         h.run_steps(3);
         assert_eq!(db.styles(family), ["Regular"], "closed popup must not preload the font");
         h.get_by_value("Regular").click();
@@ -9858,22 +9883,27 @@ mod synthetic_variable_style_regression {
             let db = designcraft_fonts::FontDb::with_font_dirs(vec![dir.path().to_owned()]);
             assert_eq!(db.styles(family), ["Regular"]);
             std::fs::remove_file(&path).unwrap();
-            let mut h = Harness::builder().build_ui_state(
-                |ui, state: &mut (Dialog, bool, u32)| {
-                    if state.1 {
-                        font_style_combo(
-                            ui,
-                            &db.scoped(state.2),
-                            state.2,
-                            family,
-                            "Regular",
-                            &mut state.0,
-                            &CharFields { base: &Value::Null, sparse: false },
-                        );
-                    }
-                },
-                (Dialog::new("paragraphStyleOptions", json!({})), true, 0),
-            );
+            let mut h = Harness::builder()
+                .with_context_setup(|ctx| {
+                    crate::theme::install_fonts(ctx, "");
+                })
+                .build_ui_state(
+                    |ui, state: &mut (Dialog, bool, u32)| {
+                        if state.1 {
+                            font_style_combo(
+                                ui,
+                                &db.scoped(state.2),
+                                state.2,
+                                family,
+                                "Regular",
+                                &mut state.0,
+                                &CharFields { base: &Value::Null, sparse: false },
+                            )
+                            .accessible_name("Font Style".to_owned());
+                        }
+                    },
+                    (Dialog::new("paragraphStyleOptions", json!({})), true, 0),
+                );
             h.run_steps(3);
             h.get_by_value("Regular").click();
             h.run_steps(3);

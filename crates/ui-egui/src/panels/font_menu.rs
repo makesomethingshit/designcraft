@@ -765,19 +765,24 @@ mod variable_catalog_regression {
         let app = crate::DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
         let menu: Vec<_> =
             designcraft_fonts::FontDb::global().scoped(0).family_infos().into_iter().filter(|f| f.family == "Bricolage Grotesque").collect();
-        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-            move |ui, state: &mut (crate::DesignApp, Option<super::FontPick>)| {
-                let key = egui::Id::unique("font_menu_state");
-                let mut st: super::MenuState = ui.data(|d| d.get_temp(key)).unwrap_or_default();
-                st.expanded.insert("Bricolage Grotesque".into());
-                ui.data_mut(|d| d.insert_temp(key, st));
-                let m = super::font_menu_header(&mut state.0, ui, &menu, "Bricolage Grotesque", 560.0);
-                if let Some(pick) = super::font_menu_list(ui, m) {
-                    state.1 = Some(pick);
-                }
-            },
-            (app, None),
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(|ctx| {
+                crate::theme::install_fonts(ctx, "");
+            })
+            .with_size(egui::vec2(1000.0, 800.0))
+            .build_ui_state(
+                move |ui, state: &mut (crate::DesignApp, Option<super::FontPick>)| {
+                    let key = egui::Id::unique("font_menu_state");
+                    let mut st: super::MenuState = ui.data(|d| d.get_temp(key)).unwrap_or_default();
+                    st.expanded.insert("Bricolage Grotesque".into());
+                    ui.data_mut(|d| d.insert_temp(key, st));
+                    let m = super::font_menu_header(&mut state.0, ui, &menu, "Bricolage Grotesque", 560.0);
+                    if let Some(pick) = super::font_menu_list(ui, m) {
+                        state.1 = Some(pick);
+                    }
+                },
+                (app, None),
+            );
         h.run_steps(3);
         h.get_by_label("SemiBold").click();
         h.run_steps(3);
@@ -797,19 +802,24 @@ mod synthetic_variable_catalog_regression {
         db.add_font(designcraft_fonts::testing::variable_font(family).unwrap());
         let app = crate::DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
         let menu: Vec<_> = db.scoped(0).family_infos().into_iter().filter(|f| f.family == family).collect();
-        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-            |ui, state: &mut (crate::DesignApp, Option<super::FontPick>)| {
-                let key = egui::Id::unique("font_menu_state");
-                let mut st: super::MenuState = ui.data(|d| d.get_temp(key)).unwrap_or_default();
-                st.expanded.insert(family.into());
-                ui.data_mut(|d| d.insert_temp(key, st));
-                let m = super::font_menu_header(&mut state.0, ui, &menu, family, 560.0);
-                if let Some(pick) = super::font_menu_list(ui, m) {
-                    state.1 = Some(pick);
-                }
-            },
-            (app, None),
-        );
+        let mut h = Harness::builder()
+            .with_context_setup(|ctx| {
+                crate::theme::install_fonts(ctx, "");
+            })
+            .with_size(egui::vec2(1000.0, 800.0))
+            .build_ui_state(
+                |ui, state: &mut (crate::DesignApp, Option<super::FontPick>)| {
+                    let key = egui::Id::unique("font_menu_state");
+                    let mut st: super::MenuState = ui.data(|d| d.get_temp(key)).unwrap_or_default();
+                    st.expanded.insert(family.into());
+                    ui.data_mut(|d| d.insert_temp(key, st));
+                    let m = super::font_menu_header(&mut state.0, ui, &menu, family, 560.0);
+                    if let Some(pick) = super::font_menu_list(ui, m) {
+                        state.1 = Some(pick);
+                    }
+                },
+                (app, None),
+            );
         h.run_steps(3);
         h.get_by_label("SemiBold").click();
         h.run_steps(3);
