@@ -913,7 +913,7 @@ fn caption_buttons_fit_the_minimum_window_width() {
 }
 
 #[test]
-fn parent_resize_properties_changes_the_parent_not_document_page_zero() {
+fn parent_resize_properties_keep_size_and_inline_parent_margins() {
     parent_resize_panel(true);
 }
 
@@ -974,6 +974,18 @@ fn parent_resize_panel(properties: bool) {
         let parents = d.parents.clone();
         if properties {
             let saved = d.clone();
+            assert_eq!(h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Top").value().as_deref(), Some("3p0"));
+            edit_parent_resize_field(&mut h, "3p0", "72 pt");
+            let edited = &h.state().session.doc().unwrap().doc;
+            for page in &edited.parents[1].pages {
+                assert_eq!(page.margins, designcraft_doc::Margins { top: 72.0, bottom: 72.0, inside: 72.0, outside: 72.0 });
+            }
+            assert_eq!(edited.parents[0], saved.parents[0]);
+            assert_eq!(edited.spreads, saved.spreads);
+            assert_eq!(edited.settings, saved.settings);
+            h.state_mut().run("edit.undo", json!({})).unwrap();
+            h.run_steps(3);
+            assert_eq!(h.state().session.doc().unwrap().doc, saved);
             h.get_by_label("Back").click();
             h.run_steps(3);
             assert!(!h.state().session.doc().unwrap().editing_parents, "Back returns to document properties");

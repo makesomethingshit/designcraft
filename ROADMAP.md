@@ -388,7 +388,7 @@ list) · [roadmap.md](docs/roadmap.md) (milestones, plan) · [parity-checklist.m
 
 Newest first.
 
-- **2026-11-01** · Parent page resizing (#1620): Properties, the Page Tool Control panel and on-page handles resize the selected parent page independently of document pages. Stable parent IDs, repeated resizing, anchors and liquid rules are preserved on the current command modules. No readiness percentage change.
+- **2026-11-01** · Parent page resizing (#1620): Properties, the Page Tool Control panel and on-page handles resize the selected parent page independently of document pages. Stable parent IDs, repeated resizing, anchors and liquid rules are preserved on the current command modules. Inline parent margin editing remains available; document commands retain their first-page default before the canvas is initialized. No readiness percentage change.
 
 - **2026-10-30** · Import warnings about a story have a Show button: it closes the warnings (the status line keeps them) and selects the story's first frame, fitted in the window. `file.open` returns `warningItems`, the frame each IDML or InDesign warning is about (or null), matching the converter's INDD story numbers (`story 30892`, written to IDML as `u78ac`) and IDML `Self` names to the imported stories. No readiness percentage change.
 - **2026-10-30** · Parent pages: a running-header variable shows its name in angle brackets on the parent itself (it was blank), as InDesign shows it; on the document pages, and in text with no page, it shows its text as before. No readiness percentage change.

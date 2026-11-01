@@ -136,6 +136,9 @@ pub(super) fn page_sections(app: &mut DesignApp, ui: &mut Ui, spread: designcraf
     {
         let _ = app.run(cmd, params);
     }
+    if matches!(spread, designcraft_doc::SpreadRef::Parent(_)) {
+        margin_section(app, ui);
+    }
     ui.add_space(6.0);
     let fw = full_width(ui);
     if outline_button(ui, crate::i18n::tr(&lang, "Margins and Columns"), fw).clicked() {
@@ -201,6 +204,65 @@ fn page_box_field(app: &mut DesignApp, ui: &mut Ui, b: Rect) {
     }
 }
 
+fn margin_section(app: &mut DesignApp, ui: &mut Ui) {
+    let u = units(app);
+    let Some(st) = app.session.active() else { return };
+    let d = st.doc.clone();
+    let t = Tokens::get(ui.ctx());
+    section(ui, crate::i18n::tr(&app.ui.language, "Margins"), true);
+    let cur = crate::canvas::current_page(app).unwrap_or(0);
+    // While parent spreads are edited the fields belong to the parent page in view; they used to
+    // show (and change) the document pages instead, so nothing changed on the parent.
+    let parent_target = crate::canvas::current_parent_page(app);
+    let shown = match parent_target {
+        Some((pi, qi)) => d.parents.get(pi).and_then(|s| s.pages.get(qi)).cloned(),
+        None => d.page(cur).cloned(),
+    };
+    if let Some(p) = shown {
+        let linked = temp_bool(ui, "margins_linked", true);
+        let b = block(ui, 2.0 * FIELD_H + 5.0);
+        let mut set: Option<designcraft_doc::Margins> = None;
+        let fields = [
+            ("margin-top", "Top", p.margins.top, 0.0, 0.0),
+            ("margin-bottom", "Bottom", p.margins.bottom, 0.0, 26.0),
+            ("margin-outside", if d.settings.facing_pages { "Outside" } else { "Right" }, p.margins.outside, 127.0, 0.0),
+            ("margin-inside", if d.settings.facing_pages { "Inside" } else { "Left" }, p.margins.inside, 127.0, 26.0),
+        ];
+        for (k, (icon, tip, v, x, y)) in fields.into_iter().enumerate() {
+            let ir = sub(b, x, y + 2.0, 17.0, 17.0);
+            icons::paint(ui.painter(), ir, icon, t.icon);
+            ui.interact(ir, ui.scope_id().with(("micon", k)), Sense::hover()).on_hover_ui(|ui| {
+                crate::rtl::label(ui, crate::i18n::tr(&app.ui.language, tip));
+            });
+            let nv = place(ui, sub(b, x + 20.0, y, 73.0, FIELD_H), |ui| {
+                NumField::measure(tip, Some(v), u).width(73.0).spinner().range(0.0, 8000.0).show(ui)
+            });
+            if let Some(nv) = nv {
+                set = Some(edited_margins(p.margins, linked, k, nv));
+            }
+        }
+        let lr = sub(b, 99.0, 12.5, 22.0, FIELD_H);
+        let clicked = place(ui, lr, |ui| {
+            widgets::icon_toggle_sized(ui, if linked { "link" } else { "link-broken" }, linked, "Make all settings the same", vec2(22.0, 21.0))
+                .clicked()
+        });
+        if clicked {
+            set_temp_bool(ui, "margins_linked", !linked);
+        }
+        if let Some(m) = set {
+            let params = match parent_target {
+                // Both pages of a facing parent spread, so the margins show wherever the parent is used.
+                Some((pi, _)) => {
+                    let n = app.session.active().and_then(|st| st.doc.parents.get(pi)).map_or(1, |sp| sp.pages.len());
+                    json!({"margins": m, "parent": pi, "pages": (0..n).collect::<Vec<_>>()})
+                }
+                None => json!({"margins": m}),
+            };
+            let _ = app.run("layout.marginsAndColumns", params);
+        }
+    }
+}
+
 pub(super) fn document_sections(app: &mut DesignApp, ui: &mut Ui) {
     let u = units(app);
     let Some(st) = app.session.active() else { return };
@@ -254,59 +316,8 @@ pub(super) fn document_sections(app: &mut DesignApp, ui: &mut Ui) {
     if changed {
         let _ = app.run("layout.documentSetup", json!({"facingPages": facing}));
     }
-    // Margins.
-    section(ui, crate::i18n::tr(&app.ui.language, "Margins"), true);
+    margin_section(app, ui);
     let cur = crate::canvas::current_page(app).unwrap_or(0);
-    // While parent spreads are edited the fields belong to the parent page in view; they used to
-    // show (and change) the document pages instead, so nothing changed on the parent.
-    let parent_target = crate::canvas::current_parent_page(app);
-    let shown = match parent_target {
-        Some((pi, qi)) => d.parents.get(pi).and_then(|s| s.pages.get(qi)).cloned(),
-        None => d.page(cur).cloned(),
-    };
-    if let Some(p) = shown {
-        let linked = temp_bool(ui, "margins_linked", true);
-        let b = block(ui, 2.0 * FIELD_H + 5.0);
-        let mut set: Option<designcraft_doc::Margins> = None;
-        let fields = [
-            ("margin-top", "Top", p.margins.top, 0.0, 0.0),
-            ("margin-bottom", "Bottom", p.margins.bottom, 0.0, 26.0),
-            ("margin-outside", if d.settings.facing_pages { "Outside" } else { "Right" }, p.margins.outside, 127.0, 0.0),
-            ("margin-inside", if d.settings.facing_pages { "Inside" } else { "Left" }, p.margins.inside, 127.0, 26.0),
-        ];
-        for (k, (icon, tip, v, x, y)) in fields.into_iter().enumerate() {
-            let ir = sub(b, x, y + 2.0, 17.0, 17.0);
-            icons::paint(ui.painter(), ir, icon, t.icon);
-            ui.interact(ir, ui.scope_id().with(("micon", k)), Sense::hover()).on_hover_ui(|ui| {
-                crate::rtl::label(ui, crate::i18n::tr(&app.ui.language, tip));
-            });
-            let nv = place(ui, sub(b, x + 20.0, y, 73.0, FIELD_H), |ui| {
-                NumField::measure(tip, Some(v), u).width(73.0).spinner().range(0.0, 8000.0).show(ui)
-            });
-            if let Some(nv) = nv {
-                set = Some(edited_margins(p.margins, linked, k, nv));
-            }
-        }
-        let lr = sub(b, 99.0, 12.5, 22.0, FIELD_H);
-        let clicked = place(ui, lr, |ui| {
-            widgets::icon_toggle_sized(ui, if linked { "link" } else { "link-broken" }, linked, "Make all settings the same", vec2(22.0, 21.0))
-                .clicked()
-        });
-        if clicked {
-            set_temp_bool(ui, "margins_linked", !linked);
-        }
-        if let Some(m) = set {
-            let params = match parent_target {
-                // Both pages of a facing parent spread, so the margins show wherever the parent is used.
-                Some((pi, _)) => {
-                    let n = app.session.active().and_then(|st| st.doc.parents.get(pi)).map_or(1, |sp| sp.pages.len());
-                    json!({"margins": m, "parent": pi, "pages": (0..n).collect::<Vec<_>>()})
-                }
-                None => json!({"margins": m}),
-            };
-            let _ = app.run("layout.marginsAndColumns", params);
-        }
-    }
     ui.add_space(6.0);
     let fw = full_width(ui);
     if outline_button(ui, crate::i18n::tr(&app.ui.language, "Adjust Layout"), fw).clicked() {
