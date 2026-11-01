@@ -929,6 +929,16 @@ fn parent_resize_panel(properties: bool) {
         app.run("file.new", serde_json::json!({"width": 400, "height": 600, "pages": 3, "facingPages": true})).unwrap();
         app.run("layout.parents.new", serde_json::json!({"prefix": "B"})).unwrap();
         app.run("layout.pages.applyParent", serde_json::json!({"pages": [0], "parent": "A"})).unwrap();
+        if properties {
+            app.run("layout.marginsAndColumns", json!({"parent": 1, "pages": [0], "margins": 24})).unwrap();
+            app.run(
+                "layout.marginsAndColumns",
+                json!({"parent": 1, "pages": [1], "margins": {"top": 36, "bottom": 48, "inside": 60, "outside": 72}}),
+            )
+            .unwrap();
+            app.run("layout.pages.applyParent", json!({"pages": [0, 1, 2], "parent": "B"})).unwrap();
+            app.run("layout.marginsAndColumns", json!({"pages": [0], "margins": 90})).unwrap();
+        }
         app.run("layout.parents.edit", serde_json::json!({"on": true, "parent": "A"})).unwrap();
         app.session.set_tool("page");
         app.canvas_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 600.0)));
@@ -974,18 +984,7 @@ fn parent_resize_panel(properties: bool) {
         let parents = d.parents.clone();
         if properties {
             let saved = d.clone();
-            assert_eq!(h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Top").value().as_deref(), Some("3p0"));
-            edit_parent_resize_field(&mut h, "3p0", "72 pt");
-            let edited = &h.state().session.doc().unwrap().doc;
-            for page in &edited.parents[1].pages {
-                assert_eq!(page.margins, designcraft_doc::Margins { top: 72.0, bottom: 72.0, inside: 72.0, outside: 72.0 });
-            }
-            assert_eq!(edited.parents[0], saved.parents[0]);
-            assert_eq!(edited.spreads, saved.spreads);
-            assert_eq!(edited.settings, saved.settings);
-            h.state_mut().run("edit.undo", json!({})).unwrap();
-            h.run_steps(3);
-            assert_eq!(h.state().session.doc().unwrap().doc, saved);
+            check_parent_margin_edits(&mut h);
             h.get_by_label("Back").click();
             h.run_steps(3);
             assert!(!h.state().session.doc().unwrap().editing_parents, "Back returns to document properties");
@@ -1011,6 +1010,38 @@ fn parent_resize_panel(properties: bool) {
             assert!(std::sync::Arc::ptr_eq(&saved, &h.state().session.doc().unwrap().doc));
         }
     }
+}
+
+fn check_parent_margin_edits(h: &mut egui_kittest::Harness<'_, DesignApp>) {
+    let saved = h.state().session.doc().unwrap().doc.clone();
+    assert_eq!(h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Top").value().as_deref(), Some("3p0"));
+    edit_parent_resize_field(h, "3p0", "72 pt");
+    let edited = &h.state().session.doc().unwrap().doc;
+    assert_eq!(edited.parents[1].pages[1].margins, designcraft_doc::Margins::uniform(72.0));
+    assert_eq!(edited.parents[1].pages[0], saved.parents[1].pages[0]);
+    assert_eq!(edited.parents[0], saved.parents[0]);
+    assert_eq!(edited.page(0), saved.page(0), "local document margins stay unchanged");
+    assert_eq!(edited.page(1), saved.page(1), "the other parent page's inheritor stays unchanged");
+    assert_eq!(edited.page(2).unwrap().margins, designcraft_doc::Margins::uniform(72.0));
+    assert_eq!(edited.settings, saved.settings);
+    h.state_mut().run("edit.undo", json!({})).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().session.doc().unwrap().doc, saved);
+    h.get_by_label("Make all settings the same").click();
+    h.run_steps(3);
+    edit_parent_resize_field(h, "3p0", "84 pt");
+    let edited = &h.state().session.doc().unwrap().doc;
+    let margins = designcraft_doc::Margins { top: 84.0, bottom: 48.0, inside: 60.0, outside: 72.0 };
+    assert_eq!(edited.parents[1].pages[1].margins, margins);
+    assert_eq!(edited.parents[1].pages[0], saved.parents[1].pages[0]);
+    assert_eq!(edited.parents[0], saved.parents[0]);
+    assert_eq!(edited.page(0), saved.page(0));
+    assert_eq!(edited.page(1), saved.page(1));
+    assert_eq!(edited.page(2).unwrap().margins, margins);
+    assert_eq!(edited.settings, saved.settings);
+    h.state_mut().run("edit.undo", json!({})).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().session.doc().unwrap().doc, saved);
 }
 
 fn edit_parent_resize_field(h: &mut egui_kittest::Harness<'_, DesignApp>, value: &str, input: &str) {
